@@ -89,8 +89,7 @@ stages:
 
               docker run -d \
                 --restart unless-stopped \
-                -
-                  --name $(containerName) \
+                --name $(containerName) \
                 -p 80:80 \
                 $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
 
