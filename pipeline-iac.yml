@@ -1,0 +1,148 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+- group: vg-eft-iac
+
+stages:
+
+- stage: Validate
+  displayName: 'Validar conexión Azure'
+
+  jobs:
+  - job: ValidateAzure
+
+    steps:
+
+    - task: AzureCLI@2
+      displayName: 'Validar suscripción Azure'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          set -e
+
+          echo "Validando conexión Azure..."
+
+          az account show
+
+          UBUNTU_VERSION=$(az vm image list \
+            --location "$(location)" \
+            --publisher Canonical \
+            --offer ubuntu-26_04-lts \
+            --sku server \
+            --all \
+            --query "[-1].version" \
+            -o tsv)
+
+          echo "Ubuntu detectada: ${UBUNTU_VERSION}"
+
+          echo "##vso[task.setvariable variable=UBUNTU_VERSION;isOutput=true]${UBUNTU_VERSION}"
+
+      name: ubuntuInfo
+
+- stage: Deploy
+  displayName: 'Desplegar infraestructura'
+
+  dependsOn: Validate
+
+  variables:
+    UBUNTU_VERSION: $[ stageDependencies.Validate.ValidateAzure.outputs['ubuntuInfo.UBUNTU_VERSION'] ]
+
+  jobs:
+  - job: DeployInfra
+
+    steps:
+
+    - task: AzureCLI@2
+      displayName: 'Crear infraestructura Azure'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          set -e
+
+          echo "Creando Resource Group..."
+
+          az group create \
+            --name $(resourceGroupName) \
+            --location $(location)
+
+          echo "Creando VNET..."
+
+          az network vnet create \
+            --resource-group $(resourceGroupName) \
+            --name $(virtualNetworkName) \
+            --address-prefix $(addressPrefix) \
+            --subnet-name $(subnetName) \
+            --subnet-prefix $(subnetPrefix)
+
+          echo "Creando NSG..."
+
+          az network nsg create \
+            --resource-group $(resourceGroupName) \
+            --name $(securityGroupName)
+
+          echo "Configurando SSH seguro..."
+
+          az network nsg rule create \
+            --resource-group $(resourceGroupName) \
+            --nsg-name $(securityGroupName) \
+            --name AllowSSH \
+            --protocol Tcp \
+            --direction Inbound \
+            --priority 1000 \
+            --source-address-prefix $(adminIp) \
+            --destination-port-range 22 \
+            --access Allow
+
+          echo "Configurando HTTP..."
+
+          az network nsg rule create \
+            --resource-group $(resourceGroupName) \
+            --nsg-name $(securityGroupName) \
+            --name AllowHTTP \
+            --protocol Tcp \
+            --direction Inbound \
+            --priority 1001 \
+            --source-address-prefix '*' \
+            --destination-port-range 80 \
+            --access Allow
+
+          echo "Creando IP pública..."
+
+          az network public-ip create \
+            --resource-group $(resourceGroupName) \
+            --name $(publicIpName) \
+            --sku Standard \
+            --allocation-method Static
+
+          echo "Creando VM Ubuntu 26.04..."
+
+          az vm create \
+            --resource-group $(resourceGroupName) \
+            --name $(vmName) \
+            --image Canonical:ubuntu-26_04-lts:server:$(UBUNTU_VERSION) \
+            --size $(vmSize) \
+            --admin-username $(adminUsername) \
+            --admin-password $(adminPassword) \
+            --vnet-name $(virtualNetworkName) \
+            --subnet $(subnetName) \
+            --nsg $(securityGroupName) \
+            --public-ip-address $(publicIpName)
+
+          echo "Infraestructura creada correctamente"
+
+          az vm show \
+            --resource-group $(resourceGroupName) \
+            --name $(vmName) \
+            --show-details \
+            --query publicIps \
+            -o tsv
