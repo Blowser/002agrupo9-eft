@@ -90,3 +90,10 @@ stages:
               docker run -d \
                 --restart unless-stopped \
                 -
+                  --name $(containerName) \
+                -p 80:80 \
+                $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
+
+              echo "===== VALIDACION ====="
+
+              docker ps
