@@ -114,25 +114,25 @@ stages:
 
               echo "===== LOGIN ACR ====="
 
-              echo "$(acrPassword)" | docker login \
+              echo "$(acrPassword)" | sudo docker login \
                 $(acrName).azurecr.io \
                 -u $(acrUsername) \
                 --password-stdin
 
               echo "===== PULL ====="
 
-              docker pull \
+              sudo docker pull \
                 $(acrName).azurecr.io/$(imageRepository):$(imageTag)
 
               echo "===== LIMPIEZA ====="
 
-              docker stop $(containerName) || true
+              sudo docker stop $(containerName) || true
 
-              docker rm $(containerName) || true
+              sudo docker rm $(containerName) || true
 
               echo "===== START CONTAINER ====="
 
-              docker run -d \
+              sudo docker run -d \
                 --restart unless-stopped \
                 --name $(containerName) \
                 -p $(hostPort):$(containerPort) \
@@ -140,7 +140,7 @@ stages:
 
               echo "===== VALIDACION ====="
 
-              docker ps
+              sudo docker ps
 
               curl http://localhost
 
