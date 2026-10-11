@@ -5,79 +5,124 @@ variables:
 
 stages:
 
+# ============================================================
+# STAGE 1 - BOOTSTRAP
+# Instala Docker en la VM si no existe
+# ============================================================
+
+- stage: Bootstrap
+  displayName: 'Preparar VM'
+
+  jobs:
+
+  - job: PrepareVM
+    displayName: 'Bootstrap VM'
+
+    pool:
+      vmImage: 'ubuntu-latest'
+
+    steps:
+
+    - checkout: none
+
+    - task: AzureCLI@2
+      displayName: 'Instalar Docker en VM'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          set -e
+
+          BOOTSTRAP_SCRIPT=$(cat <<EOF
+          set -e
+
+          export DEBIAN_FRONTEND=noninteractive
+
+          if ! command -v docker >/dev/null 2>&1
+          then
+
+            apt-get update
+
+            apt-get install -y docker.io
+
+            systemctl enable docker
+
+            systemctl start docker
+
+            groupadd -f docker
+
+            usermod -aG docker $(vmUser)
+
+          fi
+
+          docker --version
+
+          echo "__BOOTSTRAP_OK__"
+          EOF
+          )
+
+          RESULT=$(az vm run-command invoke \
+            --resource-group "$(resourceGroupName)" \
+            --name "$(virtualMachineName)" \
+            --command-id RunShellScript \
+            --scripts "${BOOTSTRAP_SCRIPT}" \
+            --query "value[0].message" \
+            --output tsv)
+
+          echo "${RESULT}"
+
+          echo "${RESULT}" | grep "__BOOTSTRAP_OK__"
+
+# ============================================================
+# STAGE 2 - DEPLOY
+# ============================================================
+
 - stage: Deploy
   displayName: 'Deploy Snake'
+
+  dependsOn: Bootstrap
 
   jobs:
 
   - deployment: DeploySnake
 
-    displayName: 'Deploy Snake Container'
+    displayName: 'Deploy Snake'
 
-    environment: 'env-002agrupo9-eft'
+    environment:
+      name: $(environmentName)
+      resourceType: VirtualMachine
 
     strategy:
+
       runOnce:
 
         deploy:
 
           steps:
 
+          - checkout: none
+
           - script: |
 
               set -e
 
-              echo "===== INSTALACION DOCKER ====="
-
-              if ! command -v docker > /dev/null 2>&1
-              then
-
-                echo "Docker no encontrado"
-
-                sudo apt update
-
-                sudo apt install -y docker.io
-
-                sudo systemctl enable docker
-
-                sudo systemctl start docker
-
-                sudo usermod -aG docker azureuser
-
-              else
-
-                echo "Docker ya instalado"
-
-              fi
+              echo "===== DOCKER ====="
 
               docker --version
 
-              echo "===== INSTALACION AZURE CLI ====="
-
-              if ! command -v az > /dev/null 2>&1
-              then
-
-                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-              fi
-
-              az version
-
               echo "===== LOGIN ACR ====="
 
-              docker login $(acrName).azurecr.io \
+              echo "$(acrPassword)" | docker login \
+                $(acrName).azurecr.io \
                 -u $(acrUsername) \
-                -p $(acrPassword)
-
-              echo "===== ULTIMO TAG ====="
-
-              IMAGE_TAG=84
-
-              echo "Tag encontrado: ${IMAGE_TAG}"
+                --password-stdin
 
               echo "===== PULL ====="
 
-              docker pull $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
+              docker pull \
+                $(acrName).azurecr.io/$(imageRepository):$(imageTag)
 
               echo "===== LIMPIEZA ====="
 
@@ -90,9 +135,13 @@ stages:
               docker run -d \
                 --restart unless-stopped \
                 --name $(containerName) \
-                -p 80:80 \
-                $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
+                -p $(hostPort):$(containerPort) \
+                $(acrName).azurecr.io/$(imageRepository):$(imageTag)
 
               echo "===== VALIDACION ====="
 
               docker ps
+
+              curl http://localhost
+
+            displayName: 'Deploy Snake Container'
