@@ -110,7 +110,7 @@ stages:
 
               echo "===== DOCKER ====="
 
-              docker --version
+              sudo docker --version
 
               echo "===== LOGIN ACR ====="
 
@@ -142,6 +142,41 @@ stages:
 
               sudo docker ps
 
-              curl http://localhost
+              echo "===== HEALTH CHECK ====="
+
+              HEALTH_OK=false
+
+              for i in {1..15}
+              do
+
+                echo "Intento ${i}/15"
+
+                if curl -f http://localhost > /dev/null 2>&1
+                then
+
+                  HEALTH_OK=true
+
+                  echo "Aplicación disponible"
+
+                  break
+
+                fi
+
+                sleep 2
+
+              done
+
+              if [ "$HEALTH_OK" = false ]
+              then
+
+                echo "ERROR: La aplicación no respondió después de 30 segundos"
+
+                sudo docker logs $(containerName)
+
+                exit 1
+
+              fi
+
+              echo "Health check OK"
 
             displayName: 'Deploy Snake Container'
