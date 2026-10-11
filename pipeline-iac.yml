@@ -2,7 +2,7 @@ trigger:
 - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: 'ubuntu-24.04'
 
 variables:
 - group: vg-eft-iac
@@ -31,28 +31,12 @@ stages:
 
           az account show
 
-          UBUNTU_VERSION=$(az vm image list \
-            --location "$(location)" \
-            --publisher Canonical \
-            --offer ubuntu-26_04-lts \
-            --sku server \
-            --all \
-            --query "[-1].version" \
-            -o tsv)
-
-          echo "Ubuntu detectada: ${UBUNTU_VERSION}"
-
-          echo "##vso[task.setvariable variable=UBUNTU_VERSION;isOutput=true]${UBUNTU_VERSION}"
-
-      name: ubuntuInfo
+          echo "Conexión ARM validada correctamente."
 
 - stage: Deploy
   displayName: 'Desplegar infraestructura'
 
   dependsOn: Validate
-
-  variables:
-    UBUNTU_VERSION: $[ stageDependencies.Validate.ValidateAzure.outputs['ubuntuInfo.UBUNTU_VERSION'] ]
 
   jobs:
   - job: DeployInfra
@@ -100,6 +84,8 @@ stages:
             --direction Inbound \
             --priority 1000 \
             --source-address-prefix $(adminIp) \
+            --source-port-range '*' \
+            --destination-address-prefix '*' \
             --destination-port-range 22 \
             --access Allow
 
@@ -113,6 +99,8 @@ stages:
             --direction Inbound \
             --priority 1001 \
             --source-address-prefix '*' \
+            --source-port-range '*' \
+            --destination-address-prefix '*' \
             --destination-port-range 80 \
             --access Allow
 
@@ -124,12 +112,12 @@ stages:
             --sku Standard \
             --allocation-method Static
 
-          echo "Creando VM Ubuntu 26.04..."
+          echo "Creando VM Ubuntu 24.04..."
 
           az vm create \
             --resource-group $(resourceGroupName) \
             --name $(vmName) \
-            --image Canonical:ubuntu-26_04-lts:server:$(UBUNTU_VERSION) \
+            --image Ubuntu2404 \
             --size $(vmSize) \
             --admin-username $(adminUsername) \
             --admin-password $(adminPassword) \
@@ -138,7 +126,9 @@ stages:
             --nsg $(securityGroupName) \
             --public-ip-address $(publicIpName)
 
-          echo "Infraestructura creada correctamente"
+          echo "Infraestructura creada correctamente."
+
+          echo "IP pública obtenida:"
 
           az vm show \
             --resource-group $(resourceGroupName) \
