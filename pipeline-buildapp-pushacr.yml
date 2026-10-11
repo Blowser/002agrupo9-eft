@@ -1,0 +1,52 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-24.04'
+
+variables:
+- group: vg-eft-build
+
+stages:
+
+- stage: BuildAndPush
+  displayName: 'Build y Push de imagen Docker'
+
+  jobs:
+
+  - job: DockerBuild
+
+    steps:
+
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: 'Build y Push Snake'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+
+          set -e
+
+          ACR_LOGIN_SERVER="$(acrName).azurecr.io"
+
+          echo "Login ACR..."
+
+          az acr login --name $(acrName)
+
+          echo "Construyendo imagen..."
+
+          docker build \
+            -t ${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId) \
+            app
+
+          echo "Publicando imagen..."
+
+          docker push \
+            ${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId)
+
+          echo "Imagen publicada correctamente"
+
+          echo "${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId)"
