@@ -1,0 +1,112 @@
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-24.04'
+
+variables:
+- group: vg-eft-deploy
+
+stages:
+
+- stage: Prepare
+  displayName: 'Preparar VM'
+
+  jobs:
+
+  - deployment: PrepareVM
+
+    environment: 'env-002agrupo9-eft'
+
+    strategy:
+      runOnce:
+
+        deploy:
+
+          steps:
+
+          - script: |
+
+              echo "Verificando Docker..."
+
+              if ! command -v docker > /dev/null 2>&1
+              then
+
+                sudo apt update
+
+                sudo apt install -y docker.io
+
+                sudo systemctl enable docker
+
+                sudo systemctl start docker
+
+              fi
+
+              echo "Verificando Azure CLI..."
+
+              if ! command -v az > /dev/null 2>&1
+              then
+
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+              fi
+
+              docker --version
+
+              az version
+
+            displayName: 'Instalar Docker y Azure CLI'
+
+- stage: Deploy
+  displayName: 'Deploy Snake'
+
+  dependsOn: Prepare
+
+  jobs:
+
+  - deployment: DeploySnake
+
+    environment: 'env-002agrupo9-eft'
+
+    strategy:
+      runOnce:
+
+        deploy:
+
+          steps:
+
+          - task: AzureCLI@2
+            displayName: 'Desplegar última imagen disponible'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+
+                set -e
+
+                echo "Buscando último tag..."
+
+                IMAGE_TAG=$(az acr repository show-tags \
+                  --name $(acrName) \
+                  --repository $(imageRepository) \
+                  --orderby time_desc \
+                  --output tsv | head -n 1)
+
+                echo "Último tag encontrado: ${IMAGE_TAG}"
+
+                az acr login --name $(acrName)
+
+                docker pull $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
+
+                docker stop $(containerName) || true
+
+                docker rm $(containerName) || true
+
+                docker run -d \
+                  --name $(containerName) \
+                  -p 80:80 \
+                  $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
+
+                echo "Contenedor desplegado."
+
+                docker ps
