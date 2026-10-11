@@ -1,19 +1,18 @@
 trigger: none
 
-pool:
-  vmImage: 'ubuntu-24.04'
-
 variables:
 - group: vg-eft-deploy
 
 stages:
 
-- stage: Prepare
-  displayName: 'Preparar VM'
+- stage: Deploy
+  displayName: 'Deploy Snake'
 
   jobs:
 
-  - deployment: PrepareVM
+  - deployment: DeploySnake
+
+    displayName: 'Deploy Snake Container'
 
     environment: 'env-002agrupo9-eft'
 
@@ -26,10 +25,14 @@ stages:
 
           - script: |
 
-              echo "Verificando Docker..."
+              set -e
+
+              echo "===== INSTALACION DOCKER ====="
 
               if ! command -v docker > /dev/null 2>&1
               then
+
+                echo "Docker no encontrado"
 
                 sudo apt update
 
@@ -39,9 +42,17 @@ stages:
 
                 sudo systemctl start docker
 
+                sudo usermod -aG docker azureuser
+
+              else
+
+                echo "Docker ya instalado"
+
               fi
 
-              echo "Verificando Azure CLI..."
+              docker --version
+
+              echo "===== INSTALACION AZURE CLI ====="
 
               if ! command -v az > /dev/null 2>&1
               then
@@ -50,63 +61,34 @@ stages:
 
               fi
 
-              docker --version
-
               az version
 
-            displayName: 'Instalar Docker y Azure CLI'
+              echo "===== LOGIN ACR ====="
 
-- stage: Deploy
-  displayName: 'Deploy Snake'
+              az acr login --name $(acrName)
 
-  dependsOn: Prepare
+              echo "===== ULTIMO TAG ====="
 
-  jobs:
+              IMAGE_TAG=$(az acr repository show-tags \
+                --name $(acrName) \
+                --repository $(imageRepository) \
+                --orderby time_desc \
+                --output tsv | head -n 1)
 
-  - deployment: DeploySnake
+              echo "Tag encontrado: ${IMAGE_TAG}"
 
-    environment: 'env-002agrupo9-eft'
+              echo "===== PULL ====="
 
-    strategy:
-      runOnce:
+              docker pull $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
 
-        deploy:
+              echo "===== LIMPIEZA ====="
 
-          steps:
+              docker stop $(containerName) || true
 
-          - task: AzureCLI@2
-            displayName: 'Desplegar última imagen disponible'
-            inputs:
-              azureSubscription: '$(azureServiceConnection)'
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
+              docker rm $(containerName) || true
 
-                set -e
+              echo "===== START CONTAINER ====="
 
-                echo "Buscando último tag..."
-
-                IMAGE_TAG=$(az acr repository show-tags \
-                  --name $(acrName) \
-                  --repository $(imageRepository) \
-                  --orderby time_desc \
-                  --output tsv | head -n 1)
-
-                echo "Último tag encontrado: ${IMAGE_TAG}"
-
-                az acr login --name $(acrName)
-
-                docker pull $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
-
-                docker stop $(containerName) || true
-
-                docker rm $(containerName) || true
-
-                docker run -d \
-                  --name $(containerName) \
-                  -p 80:80 \
-                  $(acrName).azurecr.io/$(imageRepository):${IMAGE_TAG}
-
-                echo "Contenedor desplegado."
-
-                docker ps
+              docker run -d \
+                --restart unless-stopped \
+                -
