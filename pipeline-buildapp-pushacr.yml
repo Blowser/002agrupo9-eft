@@ -40,13 +40,23 @@ stages:
 
           docker build \
             -t ${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId) \
+            -t ${ACR_LOGIN_SERVER}/$(imageRepository):latest \
             app
 
-          echo "Publicando imagen..."
+          echo "Publicando imagen BuildId..."
 
           docker push \
             ${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId)
 
+          echo "Publicando imagen latest..."
+
+          docker push \
+            ${ACR_LOGIN_SERVER}/$(imageRepository):latest
+
           echo "Imagen publicada correctamente"
 
+          echo "Tag numérico:"
           echo "${ACR_LOGIN_SERVER}/$(imageRepository):$(Build.BuildId)"
+
+          echo "Tag latest:"
+          echo "${ACR_LOGIN_SERVER}/$(imageRepository):latest"
