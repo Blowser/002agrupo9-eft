@@ -65,15 +65,13 @@ stages:
 
               echo "===== LOGIN ACR ====="
 
-              az acr login --name $(acrName)
+              docker login $(acrName).azurecr.io \
+                -u $(acrUsername) \
+                -p $(acrPassword)
 
               echo "===== ULTIMO TAG ====="
 
-              IMAGE_TAG=$(az acr repository show-tags \
-                --name $(acrName) \
-                --repository $(imageRepository) \
-                --orderby time_desc \
-                --output tsv | head -n 1)
+              IMAGE_TAG=84
 
               echo "Tag encontrado: ${IMAGE_TAG}"
 
